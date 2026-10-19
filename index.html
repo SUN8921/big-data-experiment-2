@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>寻宝大冒险 · async/await 异步之旅</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --gold: #e8c268;
+    --gold-bright: #f7dd8f;
+    --ember: #ff9a5c;
+    --ink: #0a0d16;
+    --panel: rgba(16, 21, 34, .88);
+    --line: rgba(232, 194, 104, .35);
+  }
+
+  html, body { height: 100%; }
+  body {
+    font-family: "Kaiti SC", "STKaiti", "KaiTi", "Microsoft YaHei", serif;
+    background: #05060c;
+    color: #f0e6d2;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ===== 全局氛围层 ===== */
+  .aurora {
+    position: fixed; inset: -20%; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(40% 55% at 20% 20%, rgba(64, 42, 120, .35), transparent 70%),
+      radial-gradient(45% 50% at 80% 15%, rgba(20, 80, 100, .28), transparent 70%),
+      radial-gradient(50% 60% at 50% 100%, rgba(120, 70, 20, .22), transparent 70%);
+    animation: auroraMove 18s ease-in-out infinite alternate;
+  }
+  @keyframes auroraMove {
+    from { transform: translate3d(-2%, -1%, 0) rotate(-1deg); }
+    to   { transform: translate3d(2%, 2%, 0) rotate(1.5deg); }
+  }
+  .stars { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+  .star {
+    position: absolute; border-radius: 50%; background: #ffe9a8;
+    animation: twinkle var(--d, 3s) infinite ease-in-out;
+  }
+  @keyframes twinkle {
+    0%, 100% { opacity: .12; transform: scale(.7); }
+    50% { opacity: .95; transform: scale(1.25); }
+  }
+  .vignette {
+    position: fixed; inset: 0; z-index: 5; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%);
+  }
+
+  .container {
+    position: relative; z-index: 2;
+    max-width: 1080px; margin: 0 auto; padding: 36px 24px 70px;
+  }
+
+  /* ===== 标题 ===== */
+  header { text-align: center; margin-bottom: 30px; }
+  .title-deco { color: var(--gold); font-size: 18px; letter-spacing: 14px; opacity: .8; }
+  header h1 {
+    font-size: 52px; letter-spacing: 14px; font-weight: 700; margin: 6px 0 4px;
+    background: linear-gradient(180deg, #fff3d0 0%, var(--gold-bright) 35%, #b8862e 70%, var(--gold-bright) 100%);
+    background-size: 100% 220%;
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: titleFlow 5s ease-in-out infinite;
+    text-shadow: 0 0 42px rgba(232, 194, 104, .22);
+  }
+  @keyframes titleFlow {
+    0%, 100% { background-position: 50% 0%; }
+    50% { background-position: 50% 100%; }
+  }
+  header p { color: #9db1cc; font-size: 15px; letter-spacing: 4px; }
+
+  /* ===== 舞台 ===== */
+  .stage-wrap {
+    position: relative; border-radius: 20px; padding: 10px;
+    background: linear-gradient(145deg, rgba(232,194,104,.5), rgba(90,60,20,.15) 30%, rgba(232,194,104,.4));
+    box-shadow: 0 30px 80px rgba(0,0,0,.7), 0 0 60px rgba(232,194,104,.08);
+  }
+  .stage {
+    position: relative; height: 480px; border-radius: 14px;
+    overflow: hidden; background: #0a0f1c;
+  }
+  .scene {
+    position: absolute; inset: 0;
+    opacity: 0; transform: scale(1.07);
+    transition: opacity 1.1s ease, transform 1.6s ease;
+    pointer-events: none;
+  }
+  .scene.active { opacity: 1; transform: scale(1); }
+  .scene svg { width: 100%; height: 100%; display: block; }
+
+  .stage::after {
+    content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none;
+    background: linear-gradient(to top, rgba(5,6,12,.82), transparent 42%);
+  }
+
+  /* 探险家 */
+  .explorer {
+    position: absolute; bottom: 92px; left: 3%; z-index: 4;
+    font-size: 46px; line-height: 1;
+    filter: drop-shadow(0 10px 10px rgba(0,0,0,.65));
+    transition: left 1.6s cubic-bezier(.65,.05,.3,1);
+  }
+  .explorer.walking { animation: walk .45s infinite ease-in-out; }
+  @keyframes walk {
+    0%, 100% { transform: translateY(0) rotate(-6deg); }
+    50% { transform: translateY(-10px) rotate(6deg); }
+  }
+
+  /* 羊皮纸气泡 */
+  .bubble {
+    position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
+    z-index: 6; width: min(760px, 88%);
+    background: linear-gradient(180deg, #f5e7c6, #e8d5a8);
+    color: #4a3413;
+    border: 1px solid #b9975a;
+    border-radius: 4px 18px 4px 18px;
+    padding: 16px 28px;
+    font-size: 19px; line-height: 1.65; text-align: center;
+    box-shadow: 0 14px 34px rgba(0,0,0,.55), inset 0 0 40px rgba(150, 110, 40, .18);
+    opacity: 0; translate: 0 8px;
+    transition: opacity .5s ease, translate .5s ease;
+  }
+  .bubble.show { opacity: 1; translate: 0 0; }
+  .bubble .cursor {
+    display: inline-block; width: 2px; height: 1em;
+    background: #7a5a1e; vertical-align: -2px; margin-left: 2px;
+    animation: blink .7s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ===== 进度之路 ===== */
+  .journey { margin: 34px 8px 6px; position: relative; padding: 0 2%; }
+  .journey-track {
+    position: absolute; left: 5%; right: 5%; top: 27px; height: 4px;
+    border-radius: 3px; background: rgba(157,177,204,.18);
+  }
+  .journey-fill {
+    position: absolute; left: 5%; top: 27px; height: 4px; width: 0;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--gold), var(--ember));
+    box-shadow: 0 0 14px rgba(232,194,104,.8);
+    transition: width 1.1s ease;
+  }
+  .journey-nodes { display: flex; justify-content: space-between; position: relative; }
+  .jnode { width: 56px; text-align: center; }
+  .jnode .ico {
+    width: 56px; height: 56px; margin: 0 auto;
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 26px; background: #141b2c;
+    border: 2px solid rgba(157,177,204,.3);
+    transition: all .5s ease;
+  }
+  .jnode .lbl {
+    margin-top: 8px; font-size: 12px; color: #7e90ac; letter-spacing: 1px;
+    transition: color .5s ease; white-space: nowrap;
+  }
+  .jnode.done .ico {
+    border-color: var(--gold); background: #2b2210;
+    box-shadow: 0 0 16px rgba(232,194,104,.55);
+  }
+  .jnode.done .lbl { color: var(--gold); }
+  .jnode.current .ico {
+    border-color: var(--ember); background: #3a2113; transform: scale(1.12);
+    animation: pulse 1.1s infinite ease-in-out;
+  }
+  .jnode.current .lbl { color: var(--ember); }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,154,92,.55); }
+    50% { box-shadow: 0 0 0 14px rgba(255,154,92,0); }
+  }
+
+  /* ===== 下半区：日志 + 控制 ===== */
+  .lower { display: flex; gap: 22px; margin-top: 30px; align-items: stretch; }
+  .log-panel {
+    flex: 1; background: var(--panel); backdrop-filter: blur(6px);
+    border: 1px solid rgba(157,177,204,.2); border-radius: 14px;
+    padding: 20px 24px; height: 250px; overflow-y: auto;
+    font-size: 15px; box-shadow: inset 0 0 40px rgba(0,0,0,.4);
+  }
+  .log-panel::-webkit-scrollbar { width: 8px; }
+  .log-panel::-webkit-scrollbar-thumb { background: #3a4763; border-radius: 4px; }
+  .log-title {
+    font-size: 13px; letter-spacing: 4px; color: var(--gold);
+    border-bottom: 1px solid rgba(232,194,104,.25);
+    padding-bottom: 10px; margin-bottom: 10px;
+  }
+  .log-item {
+    padding: 7px 0; border-bottom: 1px dashed rgba(157,177,204,.12);
+    animation: slideIn .5s ease both; line-height: 1.5;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(-16px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .log-time { color: #62738f; margin-right: 10px; font-size: 12px; font-family: Consolas, monospace; }
+  .log-item.fail { color: #ff8f8f; }
+  .log-item.success { color: #86e6ab; }
+
+  .side {
+    width: 220px; display: flex; flex-direction: column; gap: 16px;
+    justify-content: center; align-items: center;
+  }
+  button {
+    font-family: inherit; font-size: 19px; letter-spacing: 6px; cursor: pointer;
+    padding: 16px 0; width: 100%; border-radius: 50px; border: none;
+    color: #2b1d05; font-weight: bold;
+    background: linear-gradient(135deg, var(--gold-bright), var(--ember));
+    box-shadow: 0 10px 26px rgba(232,194,104,.35);
+    transition: transform .2s ease, box-shadow .2s ease;
+  }
+  button:hover:not(:disabled) { transform: translateY(-3px); box-shadow: 0 16px 34px rgba(232,194,104,.5); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .stat {
+    width: 100%; background: var(--panel); border: 1px solid rgba(157,177,204,.18);
+    border-radius: 12px; padding: 12px 16px; font-size: 14px; color: #9db1cc;
+    text-align: center; line-height: 1.9;
+  }
+  .stat b { color: var(--gold); font-size: 20px; }
+
+  /* ===== 结局横幅 ===== */
+  .banner {
+    text-align: center; font-size: 30px; font-weight: bold;
+    margin-top: 30px; min-height: 46px; letter-spacing: 6px;
+  }
+  .banner.win { color: var(--gold-bright); animation: winGlow 1.2s infinite alternate ease-in-out; }
+  @keyframes winGlow {
+    from { text-shadow: 0 0 12px rgba(232,194,104,.5); }
+    to { text-shadow: 0 0 38px rgba(232,194,104,.95), 0 0 80px rgba(255,154,92,.5); }
+  }
+  .banner.lose { color: #ff8f8f; animation: shake .5s ease; }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-10px); } 40% { transform: translateX(10px); }
+    60% { transform: translateX(-6px); } 80% { transform: translateX(6px); }
+  }
+
+  /* ===== 金币雨 ===== */
+  .coin {
+    position: fixed; top: -50px; z-index: 50; pointer-events: none;
+    animation: fall linear forwards;
+  }
+  @keyframes fall { to { transform: translateY(115vh) rotate(720deg); } }
+
+  /* ===== 抉择按钮 ===== */
+  .choices {
+    position: absolute; left: 50%; bottom: 118px; transform: translateX(-50%);
+    z-index: 7; display: none; gap: 16px; flex-wrap: wrap; justify-content: center;
+    width: min(820px, 92%);
+  }
+  .choices.show { display: flex; }
+  .choice-btn {
+    font-family: inherit; font-size: 17px; letter-spacing: 2px;
+    padding: 13px 26px; border-radius: 12px; cursor: pointer;
+    color: #f5e7c6; background: rgba(20, 27, 44, .92);
+    border: 2px solid var(--gold); width: auto;
+    box-shadow: 0 8px 22px rgba(0,0,0,.55), inset 0 0 18px rgba(232,194,104,.08);
+    transition: all .25s ease;
+    animation: choiceIn .4s ease both;
+  }
+  .choice-btn:nth-child(2) { animation-delay: .1s; }
+  .choice-btn:nth-child(3) { animation-delay: .2s; }
+  @keyframes choiceIn {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .choice-btn:hover {
+    background: linear-gradient(135deg, rgba(232,194,104,.25), rgba(255,154,92,.2));
+    transform: translateY(-3px);
+    box-shadow: 0 12px 28px rgba(232,194,104,.35);
+  }
+  .choices.locked .choice-btn { pointer-events: none; opacity: .35; }
+  .choices.locked .choice-btn.picked {
+    opacity: 1; background: linear-gradient(135deg, var(--gold-bright), var(--ember));
+    color: #2b1d05; border-color: transparent; font-weight: bold;
+  }
+
+  /* ===== SVG 场景内动画 ===== */
+  .flicker { animation: flicker 1.6s infinite ease-in-out; transform-origin: center bottom; }
+  @keyframes flicker {
+    0%, 100% { opacity: .85; transform: scaleY(1); }
+    25% { opacity: 1; transform: scaleY(1.12) scaleX(.96); }
+    55% { opacity: .7; transform: scaleY(.9); }
+    80% { opacity: .95; transform: scaleY(1.06); }
+  }
+  .glowPulse { animation: glowPulse 2.4s infinite ease-in-out; }
+  @keyframes glowPulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+  .floatY { animation: floatY 4s infinite ease-in-out; }
+  @keyframes floatY {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-16px); }
+  }
+  .floatY2 { animation: floatY 5.5s infinite ease-in-out reverse; }
+  .firefly { animation: firefly var(--fd, 6s) infinite ease-in-out; }
+  @keyframes firefly {
+    0%, 100% { opacity: .1; transform: translate(0, 0); }
+    25% { opacity: 1; }
+    50% { opacity: .3; transform: translate(24px, -30px); }
+    75% { opacity: .9; }
+  }
+  .fogDrift { animation: fogDrift 14s infinite ease-in-out alternate; }
+  @keyframes fogDrift {
+    from { transform: translateX(-60px); }
+    to { transform: translateX(60px); }
+  }
+  .shaft { animation: shaft 5s infinite ease-in-out; }
+  @keyframes shaft { 0%, 100% { opacity: .18; } 50% { opacity: .42; } }
+  .rise { animation: rise var(--rd, 3s) infinite linear; }
+  @keyframes rise {
+    from { transform: translateY(0); opacity: 0; }
+    15% { opacity: 1; }
+    to { transform: translateY(-140px); opacity: 0; }
+  }
+  .runeGlow { animation: runeGlow 2s infinite ease-in-out; }
+  @keyframes runeGlow {
+    0%, 100% { opacity: .5; filter: drop-shadow(0 0 4px #ffb347); }
+    50% { opacity: 1; filter: drop-shadow(0 0 14px #ffb347); }
+  }
+  .eyeGlow { animation: glowPulse 1.8s infinite ease-in-out; }
+
+  @media (max-width: 760px) {
+    header h1 { font-size: 34px; letter-spacing: 8px; }
+    .stage { height: 340px; }
+    .lower { flex-direction: column; }
+    .side { width: 100%; flex-direction: row; }
+    .jnode .lbl { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="aurora"></div>
+<div class="stars" id="stars"></div>
+<div class="vignette"></div>
+
+<div class="container">
+  <header>
+    <div class="title-deco">— ⚔ —</div>
+    <h1>寻宝大冒险</h1>
+    <p>async / await · 八 幕 异 步 奇 遇</p>
+  </header>
+
+  <div class="stage-wrap">
+    <div class="stage" id="stage">
+      <!-- 场景 SVG 由 JS 注入 -->
+      <div class="explorer walking" id="explorer">🧝</div>
+      <div class="choices" id="choices"></div>
+      <div class="bubble show" id="bubble"><span id="bubbleText">点击「启程寻宝」，一段异步的奇遇即将展开……你的每个抉择都将决定命运!</span><span class="cursor"></span></div>
+    </div>
+  </div>
+
+  <div class="journey">
+    <div class="journey-track"></div>
+    <div class="journey-fill" id="journeyFill"></div>
+    <div class="journey-nodes" id="journeyNodes"></div>
+  </div>
+
+  <div class="lower">
+    <div class="log-panel" id="logPanel">
+      <div class="log-title">冒 险 日 志</div>
+      <div class="log-item"><span class="log-time">[系统]</span>欢迎来到寻宝大冒险，点击右侧按钮启程。</div>
+    </div>
+    <div class="side">
+      <button id="startBtn">启程寻宝</button>
+      <div class="stat">冒险次数<br><b id="statCount">0</b></div>
+    </div>
+  </div>
+
+  <div class="banner" id="banner"></div>
+</div>
+
+<script src="treasure.js"></script>
+<script>
+/* ============================================================
+ * 八幕手绘 SVG 场景（无外部图片，永不加载失败）
+ * ============================================================ */
+const SCENES = [
+
+/* 0 · 古老图书馆 */
+`<svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <radialGradient id="candleGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffd98a" stop-opacity=".9"/>
+      <stop offset="100%" stop-color="#ffd98a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="libBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#141018"/><stop offset="100%" stop-color="#241a12"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="900" fill="url(#libBg)"/>
+  ${[-3,-2,-1,1,2,3].map(i=>`
+    <g transform="translate(${800+i*240},0)">
+      <rect x="-95" y="60" width="190" height="700" fill="#2b1e12" stroke="#191008" stroke-width="6"/>
+      ${[0,1,2,3,4,5].map(r=>`<rect x="-80" y="${95+r*112}" width="160" height="14" fill="#1c1209"/>
+        ${[0,1,2,3,4,5,6].map(c=>`<rect x="${-74+c*22}" y="${48+r*112}" width="16" height="${44+((r*7+c*13)%14)}" rx="2" fill="hsl(${(r*47+c*61+i*30)%360},38%,${26+((r+c)%3)*8}%)"/>`).join("")}
+      `).join("")}
+    </g>`).join("")}
+  <rect x="0" y="760" width="1600" height="140" fill="#17100a"/>
+  <ellipse cx="800" cy="860" rx="700" ry="60" fill="#000" opacity=".4"/>
+  <g transform="translate(800,700)">
+    <rect x="-260" y="0" width="520" height="34" rx="6" fill="#4a3319"/>
+    <rect x="-240" y="34" width="28" height="130" fill="#3a2712"/>
+    <rect x="212" y="34" width="28" height="130" fill="#3a2712"/>
+    <path d="M-150,-6 Q-60,-34 30,-10 Q130,10 160,-8 L160,8 Q90,26 -20,10 Q-110,-2 -150,8 Z" fill="#e8d5a8" stroke="#b9975a" stroke-width="3"/>
+    <path d="M-120,-2 Q-40,-18 60,-4" stroke="#8a6a34" stroke-width="3" fill="none" stroke-dasharray="10 8"/>
+    <circle cx="96" cy="0" r="10" fill="#c0392b"/>
+  </g>
+  <g transform="translate(560,640)">
+    <circle r="120" fill="url(#candleGlow)" class="glowPulse"/>
+    <rect x="-8" y="0" width="16" height="46" fill="#e8dcc0"/>
+    <ellipse class="flicker" cx="0" cy="-14" rx="10" ry="20" fill="#ffb347"/>
+    <ellipse class="flicker" cx="0" cy="-10" rx="5" ry="10" fill="#fff3c0"/>
+  </g>
+  <g transform="translate(1040,648)">
+    <circle r="110" fill="url(#candleGlow)" class="glowPulse" style="animation-delay:1.1s"/>
+    <rect x="-8" y="0" width="16" height="40" fill="#e8dcc0"/>
+    <ellipse class="flicker" cx="0" cy="-13" rx="9" ry="18" fill="#ffb347" style="animation-delay:.4s"/>
+    <ellipse class="flicker" cx="0" cy="-9" rx="4" ry="9" fill="#fff3c0"/>
+  </g>
+</svg>`,
+
+/* 1 · 符文解码 */
+`<svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <radialGradient id="runeBg" cx="50%" cy="45%" r="70%">
+      <stop offset="0%" stop-color="#2a1b4a"/><stop offset="100%" stop-color="#0c081a"/>
+    </radialGradient>
+  </defs>
+  <rect width="1600" height="900" fill="url(#runeBg)"/>
+  <g transform="translate(800,480)">
+    <ellipse rx="430" ry="130" fill="#1b1030" stroke="#4a3a7a" stroke-width="4"/>
+    <path d="M-330,0 Q-200,-70 0,-58 Q220,-70 330,0 Q200,58 0,52 Q-210,60 -330,0 Z" fill="#efe3c0" opacity=".92"/>
+    <path d="M-260,-6 Q-120,-34 30,-22 M-270,10 Q-100,-8 90,4 M-220,24 Q-60,8 150,16" stroke="#7a5f9f" stroke-width="5" fill="none" opacity=".8"/>
+  </g>
+  ${["ᚠ","ᚱ","ᚨ","ᛞ","ᛟ","ᚾ","ᛗ","ᚺ","ᛁ","ᛏ","ᛒ","ᛊ"].map((r,i)=>{
+    const a = i/12*Math.PI*2, x = 800+Math.cos(a)*470, y = 400+Math.sin(a)*250;
+    return `<text x="${x}" y="${y}" text-anchor="middle" font-size="64" fill="#9d7bff" class="floatY${i%2?"":"2"} runeGlow" style="animation-delay:${i*.3}s">${r}</text>`;
+  }).join("")}
+  <circle cx="800" cy="430" r="180" fill="none" stroke="#6a4fd0" stroke-width="3" opacity=".5" class="glowPulse"/>
+  <circle cx="800" cy="430" r="240" fill="none" stroke="#6a4fd0" stroke-width="2" stroke-dasharray="14 20" opacity=".4" class="glowPulse" style="animation-delay:.9s"/>
+</svg>`,
+
+/* 2 · 篝火夜会 */
+`<svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <radialGradient id="fireGlow" cx="50%" cy="60%" r="55%">
+      <stop offset="0%" stop-color="#ff9a3c" stop-opacity=".55"/><stop offset="100%" stop-color="#ff9a3c" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="nightSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a1030"/><stop offset="100%" stop-color="#1c2340"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="900" fill="url(#nightSky)"/>
+  ${Array.from({length:40},(_,i)=>`<circle cx="${(i*137)%1600}" cy="${(i*89)%380}" r="${1+(i%3)}" fill="#ffe9a8" opacity="${.3+(i%5)*.14}"/>`).join("")}
+  <circle cx="1330" cy="130" r="66" fill="#f5eed6"/><circle cx="1310" cy="118" r="58" fill="#0a1030" opacity=".28"/>
+  ${[80,260,1420,1560,560].map((x,i)=>`<path d="M${x},820 L${x+60},${420+(i%3)*70} L${x+120},820 Z" fill="#0b1226"/>`).join("")}
+  <rect x="0" y="800" width="1600" height="100" fill="#0c1526"/>
+  <ellipse cx="800" cy="760" rx="560" ry="150" fill="url(#fireGlow)" class="glowPulse"/>
+  <g transform="translate(800,780)">
+    <rect x="-90" y="0" width="180" height="20" rx="10" fill="#4a2f16" transform="rotate(6)"/>
+    <rect x="-90" y="4" width="180" height="20" rx="10" fill="#3a2410" transform="rotate(-7)"/>
+    <path class="flicker" d="M0,-120 C40,-70 55,-30 0,6 C-55,-30 -40,-70 0,-120Z" fill="#ff7b2e"/>
+    <path class="flicker" style="animation-delay:.35s" d="M0,-88 C26,-52 34,-22 0,4 C-34,-22 -26,-52 0,-88Z" fill="#ffb347"/>
+    <path class="flicker" style="animation-delay:.7s" d="M0,-56 C15,-32 18,-12 0,2 C-18,-12 -15,-32 0,-56Z" fill="#fff3c0"/>
+  </g>
+  ${[[560,770],[1050,772]].map((p,i)=>`<g transform="translate(${p[0]},${p[1]})">
+    <ellipse cx="0" cy="46" rx="66" ry="14" fill="#000" opacity=".45"/>
+    <circle cx="0" cy="-86" r="30" fill="#221a2e"/>
+    <path d="M-40,-52 Q0,-78 40,-52 L34,40 L-34,40 Z" fill="${i?"#2a2040":"#3a2030"}"/>
+  </g>`).join("")}
+  ${[0,1,2,3,4].map(i=>`<circle class="rise" style="--rd:${2.4+i*.7}s;animation-delay:${i*.5}s" cx="${760+i*20}" cy="700" r="4" fill="#ffcf7a"/>`).join("")}
+</svg>`,
+
+/* 3 · 迷雾沼泽 */
+`<svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="swampSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0c201e"/><stop offset="100%" stop-color="#14332c"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a4a3e"/><stop offset="100%" stop-color="#081a16"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="900" fill="url(#swampSky)"/>
+  ${[120,380,720,1100,1450].map((x,i)=>`<path d="M${x},640 q-30,-160 ${i%2?40:-50},-260 q${i%2?70:-60},120 ${i%2?20:-30},260 Z" fill="#0a1a15"/>
+    <path d="M${x+(i%2?30:-20)},380 q60,-30 110,-10" stroke="#0a1a15" stroke-width="16" fill="none"/>`).join("")}
+  <rect x="0" y="600" width="1600" height="300" fill="url(#water)"/>
+  <ellipse cx="800" cy="660" rx="700" ry="26" fill="#2a6a58" opacity=".35" class="glowPulse"/>
+  <path d="M240,900 L420,640 L560,648 L470,900 Z" fill="#3a2f1c"/>
+  <path d="M240,900 L420,640 L560,648 L470,900 Z" fill="none" stroke="#241c10" stroke-width="6"/>
+  ${[0,1,2,3,4].map(i=>`<rect x="${330+i*52}" y="${760-i*26}" width="14" height="150" fill="#241c10" transform="rotate(${64-i*8} ${330+i*52} ${760-i*26})"/>`).join("")}
+  <ellipse class="fogDrift" cx="500" cy="560" rx="420" ry="70" fill="#9fd8c8" opacity=".14"/>
+  <ellipse class="fogDrift" style="animation-delay:-7s" cx="1100" cy="500" rx="480" ry="80" fill="#9fd8c8" opacity=".11"/>
+  ${Array.from({length:22},(_,i)=>`<circle class="firefly" style="--fd:${4+(i%5)*1.3}s;animation-delay:${i*.4}s" cx="${(i*233)%1500+50}" cy="${300+(i*97)%380}" r="${3+(i%3)}" fill="#c8ff9a"/>`).join("")}
+</svg>`,
+
+/* 4 · 谜语石门 */
+`<svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <radialGradient id="caveBg" cx="50%" cy="40%" r="75%">
+      <stop offset="0%" stop-color="#241c14"/><stop offset="100%" stop-color="#0a0806"/>
+    </radialGradient>
+    <linearGradient id="doorStone" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5a5248"/><stop offset="100%" stop-color="#37312a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="900" fill="url(#caveBg)"/>
+  <path d="M0,0 L300,0 L240,140 L90,220 L0,260 Z" fill="#171310"/>
+  <path d="M1600,0 L1300,0 L1370,150 L1520,230 L1600,270 Z" fill="#171310"/>
+  <rect x="0" y="780" width="1600" height="120" fill="#141008"/>
+  <g transform="translate(800,430)">
+    <rect x="-270" y="-330" width="540" height="700" rx="16" fill="url(#doorStone)" stroke="#221c14" stroke-width="10"/>
+    <rect x="-230" y="-290" width="460" height="620" rx="10" fill="none" stroke="#26201a" stroke-width="6"/>
+    <line x1="0" y1="-330" x2="0" y2="370" stroke="#26201a" stroke-width="8"/>
+    <circle cx="-34" cy="30" r="16" fill="#8a7a4a" stroke="#4a3f22" stroke-width="4"/>
+    <circle cx="34" cy="30" r="16" fill="#8a7a4a" stroke="#4a3f22" stroke-width="4"/>
+    ${["ᚦ","ᚹ","ᛃ","ᛇ","ᛈ","ᛉ"].map((r,i)=>`<text x="${-170+(i%3)*170}" y="${-200+Math.floor(i/3)*130}" text-anchor="middle" font-size="72" fill="#ffb347" class="runeGlow" style="animation-delay:${i*.33}s">${r}</text>`).join("")}
+    <text x="0" y="180" text-anchor="middle" font-size="46" fill="#ffb347" class="runeGlow" style="animation-delay:.8s">？</text>
+  </g>
+  ${[330,1270].map((x,i)=>`<g transform="translate(${x},700)">
+    <circle r="110" fill="#ff9a3c" opacity=".2" class="glowPulse" style="animation-delay:${i*.8}s"/>
+    <path d="M-30,80 L30,80 L16,0 L-16,0 Z" fill="#2a2018"/>
+    <ellipse class="flicker" cx="0" cy="-26" rx="20" ry="36" fill="#ff8b2e" style="animation-delay:${i*.5}s"/>
+    <ellipse class="flicker" cx="0" cy="-18" rx="10" ry="20" fill="#ffd98a"/>
+  </g>`).join("")}
+</svg>`,
+
+/* 5 · 神庙深处 */
+`<svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="templeBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3d3423"/><stop offset="100%" stop-color="#161007"/>
+    </linearGradient>
+    <linearGradient id="lightShaft" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffe9a8" stop-opacity=".8"/><stop offset="100%" stop-color="#ffe9a8" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="900" fill="url(#templeBg)"/>
+  ${[150,420,1180,1450].map(x=>`<g transform="translate(${x},0)">
+    <rect x="-52" y="120" width="104" height="680" fill="#4d4130"/>
+    <rect x="-70" y="96" width="140" height="34" fill="#5d4f3a"/>
+    <rect x="-70" y="790" width="140" height="34" fill="#3a3122"/>
+    <line x1="-30" y1="130" x2="-30" y2="790" stroke="#3a3122" stroke-width="8"/>
+    <line x1="30" y1="130" x2="30" y2="790" stroke="#3a3122" stroke-width="8"/>
+  </g>`).join("")}
+  <polygon class="shaft" points="640,0 760,0 900,900 700,900" fill="url(#lightShaft)"/>
+  <polygon class="shaft" style="animation-delay:1.6s" points="880,0 990,0 1230,900 1040,900" fill="url(#lightShaft)" opacity=".6"/>
+  <rect x="0" y="800" width="1600" height="100" fill="#241c0e"/>
+  <g transform="translate(800,640)">
+    <rect x="-180" y="60" width="360" height="110" fill="#4d4130" stroke="#33291a" stroke-width="6"/>
+    <rect x="-140" y="10" width="280" height="60" fill="#5d4f3a"/>
+    <g transform="translate(0,-30)">
+      <rect x="-90" y="-40" width="180" height="80" rx="8" fill="#6b4a1f" stroke="#3a2810" stroke-width="6"/>
+      <path d="M-90,-40 Q0,-90 90,-40" fill="#7d5a28" stroke="#3a2810" stroke-width="6"/>
+      <rect x="-14" y="-16" width="28" height="34" rx="4" fill="#ffd98a" class="glowPulse"/>
+      <circle cx="0" cy="0" r="70" fill="#ffd98a" opacity=".22" class="glowPulse"/>
+    </g>
+  </g>
+  ${[250,1350].map((x,i)=>`<g transform="translate(${x},470)">
+    <rect x="-46" y="60" width="92" height="270" fill="#37301f"/>
+    <circle cx="0" cy="0" r="52" fill="#37301f"/>
+    <rect x="-70" y="40" width="140" height="30" fill="#37301f"/>
+    <circle cx="${i?14:-14}" cy="-8" r="7" fill="#8fd0ff" class="glowPulse"/>
+  </g>`).join("")}
+  ${[0,1,2,3,4,5].map(i=>`<circle class="rise" style="--rd:${3+i*.6}s;animation-delay:${i*.55}s" cx="${740+i*24}" cy="620" r="3.5" fill="#ffe9a8"/>`).join("")}
+</svg>`,
+
+/* 6 · 巨龙谈判 */
+`<svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <radialGradient id="dragonCave" cx="50%" cy="60%" r="70%">
+      <stop offset="0%" stop-color="#3a1408"/><stop offset="100%" stop-color="#0c0503"/>
+    </radialGradient>
+    <radialGradient id="emberGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff7b2e" stop-opacity=".8"/><stop offset="100%" stop-color="#ff7b2e" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1600" height="900" fill="url(#dragonCave)"/>
+  <path d="M0,0 L1600,0 L1600,120 L1380,90 L1200,150 L980,80 L760,140 L520,70 L300,130 L120,80 L0,110 Z" fill="#1c0d06"/>
+  <rect x="0" y="760" width="1600" height="140" fill="#160a05"/>
+  <ellipse cx="1050" cy="770" rx="480" ry="90" fill="#3a280a"/>
+  ${Array.from({length:16},(_,i)=>`<ellipse cx="${760+(i*61)%560}" cy="${730+(i*37)%70}" rx="26" ry="10" fill="#${i%2?"c89830":"e8b840"}"/>`).join("")}
+  <g transform="translate(1020,470)">
+    <path d="M-330,240 C-380,60 -260,-90 -90,-110 C60,-128 190,-60 230,40 C260,120 220,200 120,240 Z" fill="#7a1f12"/>
+    <path d="M-330,240 C-380,60 -260,-90 -90,-110 C-40,-116 10,-104 52,-82 C-80,-70 -180,20 -200,160 Z" fill="#93281a"/>
+    <path d="M170,-30 C260,-90 350,-70 400,-10 C340,-6 300,30 280,80 C250,30 210,-6 170,-30 Z" fill="#7a1f12"/>
+    <path d="M-90,-110 C-40,-200 60,-230 130,-190 C70,-170 30,-120 20,-60 Z" fill="#8f2314"/>
+    <g transform="translate(60,-160)">
+      <path d="M0,0 C60,-30 130,-20 170,30 C120,50 50,44 0,20 Z" fill="#93281a"/>
+      <path d="M150,26 L210,40 L156,52 Z" fill="#93281a"/>
+      <circle class="eyeGlow" cx="96" cy="6" r="12" fill="#ffd23c"/>
+      <circle cx="99" cy="6" r="5" fill="#1a0d02"/>
+      <path d="M30,-14 L52,-46 L64,-12 Z" fill="#6b1a0e"/>
+      <path d="M76,-22 L100,-56 L112,-18 Z" fill="#6b1a0e"/>
+    </g>
+    <path d="M-250,120 C-140,90 -30,110 60,170" stroke="#5c1708" stroke-width="30" fill="none" stroke-linecap="round"/>
+    ${[0,1,2,3,4,5].map(i=>`<path d="M${-230+i*56},${100+(i%2)*14} l14,-34 l14,34 Z" fill="#e8c268"/>`).join("")}
+  </g>
+  <ellipse cx="330" cy="700" rx="150" ry="90" fill="url(#emberGlow)" class="glowPulse"/>
+  ${Array.from({length:12},(_,i)=>`<circle class="rise" style="--rd:${2.2+(i%4)*.8}s;animation-delay:${i*.45}s" cx="${180+(i*101)%1300}" cy="${640+(i*53)%120}" r="${2.5+(i%3)}" fill="#ff9a3c"/>`).join("")}
+</svg>`,
+
+/* 7 · 传说宝藏 */
+`<svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <radialGradient id="goldBurst" cx="50%" cy="58%" r="60%">
+      <stop offset="0%" stop-color="#ffd98a" stop-opacity=".9"/><stop offset="45%" stop-color="#c89030" stop-opacity=".35"/><stop offset="100%" stop-color="#0c0803" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="chestGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fff3c0"/><stop offset="100%" stop-color="#fff3c0" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1600" height="900" fill="#0c0803"/>
+  <rect width="1600" height="900" fill="url(#goldBurst)" class="glowPulse"/>
+  <rect x="0" y="740" width="1600" height="160" fill="#241a08"/>
+  <ellipse cx="800" cy="790" rx="640" ry="80" fill="#4a360f"/>
+  ${Array.from({length:26},(_,i)=>`<ellipse cx="${240+(i*97)%1150}" cy="${740+(i*41)%90}" rx="30" ry="11" fill="#${i%3?"d8a838":"f0c858"}"/>`).join("")}
+  <g transform="translate(800,560)">
+    <circle r="330" fill="url(#chestGlow)" opacity=".5" class="glowPulse"/>
+    <path d="M-200,-40 Q-200,-190 0,-190 Q200,-190 200,-40 L200,-10 L-200,-10 Z" fill="#8a5a20" stroke="#4a2f0c" stroke-width="8" transform="rotate(-16)"/>
+    <rect x="-210" y="-30" width="420" height="190" rx="14" fill="#a06a26" stroke="#4a2f0c" stroke-width="8"/>
+    <rect x="-210" y="30" width="420" height="22" fill="#4a2f0c"/>
+    <rect x="-24" y="24" width="48" height="60" rx="6" fill="#ffd98a" class="glowPulse"/>
+    ${[[-140,-48],[-60,-58],[30,-52],[120,-46],[-100,-40],[70,-44],[160,-40],[-170,-38]].map((p,i)=>`<circle cx="${p[0]}" cy="${p[1]}" r="15" fill="hsl(${(i*67)%360},80%,60%)"/>`).join("")}
+    ${Array.from({length:10},(_,i)=>`<ellipse cx="${-170+i*38}" cy="-34" rx="20" ry="8" fill="#f0c858"/>`).join("")}
+  </g>
+  ${Array.from({length:18},(_,i)=>`<circle class="rise" style="--rd:${2+(i%5)*.6}s;animation-delay:${i*.3}s" cx="${480+(i*67)%640}" cy="${540+(i*29)%160}" r="${3+(i%4)}" fill="#ffe9a8"/>`).join("")}
+  ${["✦","✧","✦","✧","✦","✧"].map((s,i)=>`<text class="floatY${i%2?"":"2"}" style="animation-delay:${i*.5}s" x="${300+i*200}" y="${180+(i%3)*70}" font-size="${34+(i%3)*12}" fill="#fff3c0" text-anchor="middle">${s}</text>`).join("")}
+</svg>`
+];
+
+const STEPS = [
+  { ico: "📚", lbl: "图书馆" }, { ico: "🔮", lbl: "解码" },
+  { ico: "🤝", lbl: "集结" },   { ico: "🌫️", lbl: "沼泽" },
+  { ico: "🚪", lbl: "石门" },   { ico: "🏛️", lbl: "神庙" },
+  { ico: "🐉", lbl: "巨龙" },   { ico: "💎", lbl: "宝藏" },
+];
+
+/* ============================================================
+ * DOM 初始化
+ * ============================================================ */
+const stage = document.getElementById("stage");
+const explorer = document.getElementById("explorer");
+const bubble = document.getElementById("bubble");
+const bubbleText = document.getElementById("bubbleText");
+const logPanel = document.getElementById("logPanel");
+const banner = document.getElementById("banner");
+const startBtn = document.getElementById("startBtn");
+const journeyFill = document.getElementById("journeyFill");
+const journeyNodes = document.getElementById("journeyNodes");
+const statCount = document.getElementById("statCount");
+const choicesBox = document.getElementById("choices");
+
+// 注入场景
+SCENES.forEach((svg, i) => {
+  const div = document.createElement("div");
+  div.className = "scene";
+  div.dataset.step = i;
+  div.innerHTML = svg;
+  stage.insertBefore(div, explorer);
+});
+
+// 注入进度节点
+STEPS.forEach((s, i) => {
+  const n = document.createElement("div");
+  n.className = "jnode";
+  n.dataset.step = i;
+  n.innerHTML = `<div class="ico">${s.ico}</div><div class="lbl">${s.lbl}</div>`;
+  journeyNodes.appendChild(n);
+});
+const jnodes = document.querySelectorAll(".jnode");
+
+// 星空
+const starsBox = document.getElementById("stars");
+for (let i = 0; i < 80; i++) {
+  const s = document.createElement("div");
+  s.className = "star";
+  const size = 1 + Math.random() * 2.6;
+  s.style.cssText = `left:${Math.random()*100}%;top:${Math.random()*100}%;width:${size}px;height:${size}px;--d:${2+Math.random()*3}s;animation-delay:${Math.random()*3}s`;
+  starsBox.appendChild(s);
+}
+
+/* ============================================================
+ * 动画驱动
+ * ============================================================ */
+let typeTimer = null;
+function showBubble(text) {
+  clearInterval(typeTimer);
+  bubble.classList.add("show");
+  bubbleText.textContent = "";
+  let i = 0;
+  typeTimer = setInterval(() => {
+    bubbleText.textContent = text.slice(0, ++i);
+    if (i >= text.length) clearInterval(typeTimer);
+  }, 42);
+}
+
+function activateStep(step) {
+  document.querySelectorAll(".scene").forEach(s =>
+    s.classList.toggle("active", +s.dataset.step === step));
+  jnodes.forEach(n => {
+    const idx = +n.dataset.step;
+    n.classList.toggle("done", idx < step);
+    n.classList.toggle("current", idx === step);
+  });
+  journeyFill.style.width = (step / (STEPS.length - 1)) * 90 + "%";
+  explorer.style.left = 3 + (step / (STEPS.length - 1)) * 82 + "%";
+  // 换场景时小人走两步
+  explorer.classList.add("walking");
+  setTimeout(() => explorer.classList.remove("walking"), 1600);
+}
+
+function detectStep(text) {
+  if (/图书馆|第一个线索/.test(text)) return 0;
+  if (/解码/.test(text)) return 1;
+  if (/伙伴|加入/.test(text)) return 2;
+  if (/沼泽/.test(text)) return 3;
+  if (/石门/.test(text)) return 4;
+  if (/神庙|箱子/.test(text)) return 5;
+  if (/巨龙/.test(text)) return 6;
+  if (/宝藏/.test(text)) return 7;
+  return -1;
+}
+
+function gameLog(text) {
+  const item = document.createElement("div");
+  item.className = "log-item";
+  if (/失败|糟糕|激怒|撤退|错误/.test(text)) item.classList.add("fail");
+  if (/恭喜|宝藏/.test(text)) item.classList.add("success");
+  const t = new Date().toTimeString().slice(0, 8);
+  item.innerHTML = `<span class="log-time">[${t}]</span>${text}`;
+  logPanel.appendChild(item);
+  logPanel.scrollTop = logPanel.scrollHeight;
+
+  const step = detectStep(text);
+  if (step >= 0) {
+    activateStep(step);
+    showBubble(text.replace(/^[^\s]+\s/, ""));
+  } else {
+    showBubble(text);
+  }
+}
+
+// 玩家抉择：展示问题与选项按钮，返回 Promise<选项下标>
+function gameAsk(question, options) {
+  return new Promise((resolve) => {
+    // 问题里含场景关键词，借此切换到对应场景
+    const step = detectStep(question);
+    if (step >= 0) activateStep(step);
+    showBubble(question);
+
+    choicesBox.innerHTML = "";
+    choicesBox.className = "choices show";
+    options.forEach((opt, i) => {
+      const btn = document.createElement("button");
+      btn.className = "choice-btn";
+      btn.textContent = opt;
+      btn.addEventListener("click", () => {
+        choicesBox.classList.add("locked");
+        btn.classList.add("picked");
+        setTimeout(() => {
+          choicesBox.className = "choices";
+          choicesBox.innerHTML = "";
+          resolve(i);
+        }, 650);
+      });
+      choicesBox.appendChild(btn);
+    });
+  });
+}
+
+function coinRain() {
+  const icons = ["🪙", "💰", "✨", "💎", "👑"];
+  for (let i = 0; i < 46; i++) {
+    setTimeout(() => {
+      const c = document.createElement("div");
+      c.className = "coin";
+      c.textContent = icons[Math.floor(Math.random() * icons.length)];
+      c.style.left = Math.random() * 100 + "vw";
+      c.style.fontSize = 20 + Math.random() * 22 + "px";
+      c.style.animationDuration = 2 + Math.random() * 2.2 + "s";
+      document.body.appendChild(c);
+      setTimeout(() => c.remove(), 4500);
+    }, i * 110);
+  }
+}
+
+function reset() {
+  jnodes.forEach(n => n.classList.remove("done", "current"));
+  journeyFill.style.width = "0";
+  explorer.style.left = "3%";
+  banner.textContent = "";
+  banner.className = "banner";
+  choicesBox.className = "choices";
+  choicesBox.innerHTML = "";
+  logPanel.innerHTML = '<div class="log-title">冒 险 日 志</div>';
+  document.querySelectorAll(".scene").forEach(s => s.classList.remove("active"));
+}
+
+let runs = 0;
+startBtn.addEventListener("click", async () => {
+  startBtn.disabled = true;
+  reset();
+  statCount.textContent = ++runs;
+  gameLog("🎬 第 " + runs + " 次冒险，启程!");
+  const result = await findTreasureWithAsyncAwait(gameLog, gameAsk);
+  jnodes.forEach(n => n.classList.remove("current"));
+  if (result.success) {
+    jnodes.forEach(n => n.classList.add("done"));
+    journeyFill.style.width = "90%";
+    banner.textContent = "🏆 寻宝成功!传说中的宝藏属于你!";
+    banner.classList.add("win");
+    coinRain();
+  } else {
+    banner.textContent = "💀 冒险失败……振作起来，再次启程吧!";
+    banner.classList.add("lose");
+  }
+  startBtn.disabled = false;
+  startBtn.textContent = "再次寻宝";
+});
+</script>
+</body>
+</html>
